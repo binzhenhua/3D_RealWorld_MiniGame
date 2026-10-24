@@ -1,0 +1,26 @@
+Create a map from school photos (no coding required)
+
+I. Taking Photos
+1. Take a photo of each building facing directly upwards: Stand directly in front, as far away as possible, with the camera level, ensuring the entire building is in the frame, avoiding faces and license plates.
+
+2. Optional: Take a 2:1 360-degree panoramic photo (using your phone's "Photo Sphere" feature) to use as the background sky.
+
+II. Processing Photos
+1. Resize the photos to a width of 1024–2048 pixels and a file size under 1MB, saving them as JPGs (you can resize them using your phone's photo album or a drawing app).
+
+2. Place the files in this folder and name them main.jpg, left.jpg, and right.jpg (corresponding to the main building, left building, and right building). Name the panoramic image sky.jpg.
+
+III. Modifying map.json
+1. The size of each building is [width, height, depth]. The width:height ratio of the facade photo must match the width:height ratio of the corresponding face in the size setting; otherwise, the photo will be stretched.
+
+Main building (face with facade set to +z or -z): Aspect ratio = size[0] : size[1]
+
+Side building (face with facade set to +x or -x): Aspect ratio = size[2] : size[1]
+
+Example: Main building photo 3000×1400 (scale approx. 2.14), width 54, height 54÷2.14 ≈ 25.
+
+2. To use a panoramic background, add a line to the outermost layer of map.json: "sky": "sky.jpg"
+
+3. To add a building, copy the building item from obstacles, and modify pos (center point), size, texture, and facade (photo orientation +x/-x/+z/-z).
+
+4. Restart node server.js, and select this map on the start screen. Buildings without photos will display the default exterior design without any errors.

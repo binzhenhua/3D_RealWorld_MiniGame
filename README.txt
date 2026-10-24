@@ -1,3 +1,61 @@
+【Most Important: File Placement】 All files used by the map (map.json, photos, ground maps, panoramic images, etc.) must be placed in the `maps/map_name/` folder, at the same level as `map.json`.
+
+In `map.json`, only the filename should be written, not the path. For example:
+
+`server.js`
+`shooter-three.html`
+`maps/`
+    `hfut/` <- Map folder, name can only use letters, numbers, underscores, and hyphens
+      `map.json` <- Must be named this
+      `main.webp` <- Place here, in `map.json` write "texture": "main.webp"
+      `ground.jpg`
+    `courtyard/`
+      `map.json`
+
+If the image is not placed in the correct location, it will not cause an error or crash, but it will not display: In the new version of the game, the "Mode" line in the upper left corner will display "⚠ Elevation map xxx failed to load".
+
+``` Troubleshooting: Opening http://localhost:3000/maps/map_name/image_name directly in your browser shows the image descriptions are correctly positioned.
+
+After placing the files, if you modify map.json, you need to restart Node.js; if you only replace the images, simply refresh the page (Ctrl+F5).
+
+--------------------------------------------------------------------
+
+Map Package Instructions
+
+1. Each map has its own folder: maps/map_name/map.json (folder names can only contain letters, numbers, underscores, and hyphens).
+
+2. Creating a new map: Copy the campus folder, rename it, and modify map.json. After restarting Node.js, it will appear in the map list on the start screen.
+
+3. map.json fields:
+
+name Display name
+
+bounds Activity range (half the length of the side, maximum 100)
+
+spawns Spawn points: coop (cooperative), red/blue (combat), format [x, z]
+
+targetZone Monster activity area: one each in x and z [minimum, maximum] (actual range expands outward by 6 squares, y is no longer used)
+
+obstacles List of obstacles, each item: pos=[x,y,z] (center point), size=[width, height, depth], style=building/wall/crate
+
+color (optional, hexadecimal color), texture (optional, image in the same folder, only applied to this side of the facade), facade (facade orientation +x/-x/+z/-z, default +z)
+
+sky (optional), 2:1 panoramic image (jpg/png) in the same folder, used as the background sky; change this image when changing the school background)
+
+ground (optional), ground texture in the same folder
+
+4. Coordinates: Ground y=0, player's eye height 3. Jump height is approximately 2 meters; to block bullets, the wall height must exceed 3 meters.
+
+Decals is optional. The facade texture list is: {texture (webp/png with transparent background), pos=[x,y,z], size=[width,height], facing=+z/-z/+x/-x}. These are only for display and do not participate in collisions.
+
+Method: Cut out the sky from the building photo to be transparent and place it upright in front of a block made of obstacles. The block is responsible for collisions and side impacts.
+
+5. Style can also be set to tree: the width in size is the trunk thickness, the height must be ≥5 (so the canopy won't hit the player's head), the y-axis of pos is half the height, and color can be changed to the canopy color.
+
+6. Please use your own photos or licensed images.
+
+
+
 【最重要：文件放哪里】
 地图用到的所有文件（map.json、照片、地面图、全景图……）都必须放在 maps/地图名/ 这个文件夹里，和 map.json 在同一层。
 map.json 里写的图片名（texture、sky、ground、decals 里的 texture）只写文件名，不要写路径。例如：
