@@ -1,0 +1,12 @@
+{
+  "name": "shooter-online",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "selfsigned": "^2.4.1"
+  }
+}

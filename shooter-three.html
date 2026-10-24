@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>Three.js 打靶</title>
+<style>
+body{margin:0;overflow:hidden;background:#111;font-family:sans-serif}
+#crosshair{position:absolute;top:50%;left:50%;width:10px;height:10px;transform:translate(-50%,-50%);border:2px solid #fff;border-radius:50%;pointer-events:none}
+#hint{position:absolute;top:58%;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,.7);padding:10px 18px;border-radius:6px;pointer-events:none}
+#info{position:absolute;top:10px;left:10px;color:#fff;background:rgba(0,0,0,.7);padding:12px;border-radius:5px;line-height:1.6;pointer-events:none}
+#info label{pointer-events:auto;cursor:pointer;text-decoration:underline;display:block}
+#startBox{position:fixed;inset:0;background:rgba(10,12,20,.88);display:flex;align-items:center;justify-content:center;z-index:10;color:#fff}
+#startBox .card{background:#1c2030;padding:28px 32px;border-radius:12px;min-width:260px}
+#startBox h2{margin:0 0 8px}
+#startBox label{display:block;margin:14px 0}
+#startBox input{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:8px;border-radius:6px;border:1px solid #445;background:#0f1220;color:#fff;font-size:16px}
+#startBox button{width:100%;padding:10px;border:0;border-radius:6px;background:#e8a317;color:#222;font-size:16px;font-weight:700;cursor:pointer}
+#startBox select{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:8px;border-radius:6px;border:1px solid #445;background:#0f1220;color:#fff;font-size:16px}
+#hp{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:240px;height:14px;background:rgba(0,0,0,.6);border-radius:7px;overflow:hidden;pointer-events:none}
+#hpfill{height:100%;width:100%;background:#4cd964;transition:width .2s}
+#dmg{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(transparent 40%,rgba(255,0,0,.75))}
+#bar{position:fixed;left:50%;bottom:40px;transform:translateX(-50%);display:flex;gap:6px;pointer-events:none}
+.slot{width:48px;height:48px;border:2px solid rgba(255,255,255,.35);border-radius:6px;background:rgba(0,0,0,.5);color:#fff;font-size:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.slot.on{border-color:#ffd34d;background:rgba(255,211,77,.25)}
+.slot i{font-style:normal;font-size:18px;line-height:18px}.slot b{width:22px;height:14px;border-radius:3px;display:block}
+</style></head><body>
+<div id="crosshair"></div><div id="bar"></div><div id="hp"><div id="hpfill"></div></div><div id="dmg"></div><div id="hint">点击画面开始（Esc 退出鼠标锁定）</div>
+<div id="startBox"><div class="card"><h2>🎯 多人打靶</h2>
+<label>你的名字<input id="nameIn" maxlength="12" placeholder="玩家"></label>
+<label>房间号（同房间的人一起玩，最多 4 人）<input id="roomIn" maxlength="16" placeholder="room1"></label>
+<label>模式（以第一个进房间的人为准）<select id="modeSel"><option value="coop">合作打靶</option><option value="pvp">阵营对战（可互射）</option></select></label>
+<label>头像（可选，会贴在你角色的脸上）<input id="avIn" type="file" accept="image/*"><img id="avPrev" hidden width="64" height="64" style="border-radius:50%;margin-top:6px;object-fit:cover"></label>
+<label>地图（以第一个进房间的人为准）<select id="mapSel"><option value="">加载中…</option></select></label>
+<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="voiceChk" style="width:auto;display:inline-block;margin:0"> 加入语音聊天（需要麦克风，且要用 https 地址打开）</label>
+<label>建筑保护（以第一个进房间的人为准；有存档的房间沿用存档）<select id="protSel"><option value="1">开：只能拆自己砌的</option><option value="0">关：所有人都能拆</option></select></label>
+<label>每波怪物数量（1–10，同上）<input id="countIn" type="number" min="1" max="10" value="3"></label>
+<button id="startBtn">开始游戏</button><div id="startMsg" style="margin-top:8px;color:#ffb4a8"></div></div></div>
+<div id="info"><strong>鼠标</strong>转视角｜<strong>WASD</strong>移动｜<strong>空格</strong>跳跃｜<strong>1–9/滚轮</strong>换物品（枪、砖、木板、玻璃、石头、门、窗、镐子、飞机）｜<strong>E</strong>开关门｜飞机：<strong>W/S</strong>加减速 <strong>A/D</strong>转弯 鼠标控制俯仰｜<strong>左键</strong>开枪/砌/拆｜<strong>右键</strong>拆｜<strong>Z</strong>撤销上一块｜<strong>M</strong>静音全部声音｜<strong>V</strong>开/关麦克风<br>
+玩家 <span id="pname">-</span>｜第 <span id="wave">1</span> 波｜剩余 <span id="left">3</span> 个<br>
+手持 <span id="tool">枪</span>｜模式 <span id="mode">-</span><div id="sb"></div><div id="saved" style="font-size:12px;opacity:.8"></div><div id="voice" style="font-size:12px;margin-top:2px"></div><div id="fly" style="font-size:12px"></div>
+
+<label>☁ 天空图片<input type="file" id="pSky" accept="image/*" hidden></label>
+<label>🌱 地面图片<input type="file" id="pGround" accept="image/*" hidden></label>
+<label>🎵 背景音乐<input type="file" id="pBgm" accept="audio/*" hidden></label>
+<small>（选文件前先按 Esc）｜版本：立面贴片 v2</small></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+let BOX_COUNT = 3;                       // 每波箱子数量，改成 N 即可
+const $ = id => document.getElementById(id);
+const sRGB = THREE.sRGBEncoding;
+
+// ---------- 场景 ----------
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xbfe3ff, 30, 100);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 300);
+camera.position.set(0, 3, 12); camera.rotation.order = 'YXZ';
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputEncoding = sRGB;
+document.body.appendChild(renderer.domElement);
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(20, 40, 10); scene.add(sun);
+
+const cvTex = (w, h, draw) => {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.encoding = sRGB; return t;
+};
+
+// 天空：程序生成（渐变 + 云 + 远山 + 太阳），可替换为你自己的全景图
+const skyTex = cvTex(1024, 512, (x, w, h) => {
+  let g = x.createLinearGradient(0, 0, 0, h / 2); g.addColorStop(0, '#1e5fa8'); g.addColorStop(1, '#bfe3ff');
+  x.fillStyle = g; x.fillRect(0, 0, w, h / 2);
+  x.fillStyle = '#8fb878'; x.fillRect(0, h / 2, w, h / 2);
+  for (let i = 0; i < 60; i++) {
+    x.fillStyle = `rgba(255,255,255,${.15 + Math.random() * .3})`; x.beginPath();
+    x.ellipse(Math.random() * w, 20 + Math.random() * h * .3, 30 + Math.random() * 60, 8 + Math.random() * 14, 0, 0, 7); x.fill();
+  }
+  x.fillStyle = '#6f8fb5'; x.beginPath(); x.moveTo(0, h / 2);
+  for (let i = 0; i <= w; i += 32) x.lineTo(i, h / 2 - 10 - Math.random() * 40);
+  x.lineTo(w, h / 2); x.fill();
+  const s = x.createRadialGradient(760, 90, 5, 760, 90, 60);
+  s.addColorStop(0, '#fff'); s.addColorStop(.3, 'rgba(255,240,180,.9)'); s.addColorStop(1, 'rgba(255,240,180,0)');
+  x.fillStyle = s; x.fillRect(680, 10, 160, 160);
+});
+const skyGeo = new THREE.SphereGeometry(200, 40, 20); skyGeo.scale(-1, 1, 1);
+const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, fog: false });
+const sky = new THREE.Mesh(skyGeo, skyMat); scene.add(sky);
+
+// 地面：程序生成草地，可替换
+const grassTex = cvTex(256, 256, (x, w, h) => {
+  x.fillStyle = '#4f8a3c'; x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 3000; i++) {
+    x.fillStyle = `hsl(${90 + Math.random() * 30},45%,${28 + Math.random() * 20}%)`;
+    x.fillRect(Math.random() * w, Math.random() * h, 2, 3);
+  }
+});
+grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(60, 60);
+const groundMat = new THREE.MeshStandardMaterial({ map: grassTex });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), groundMat);
+ground.rotation.x = -Math.PI / 2; scene.add(ground);
+
+// ---------- 枪（挂在相机下，随视角移动） ----------
+const gun = new THREE.Group();
+const gunMat = new THREE.MeshStandardMaterial({ color: 0x2b2f36, metalness: .6, roughness: .4 });
+const part = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); gun.add(m); return m; };
+part(new THREE.BoxGeometry(.09, .12, .5), gunMat, 0, 0, 0);                                   // 枪身
+part(new THREE.CylinderGeometry(.025, .025, .35, 12), gunMat, 0, .02, -.4).rotation.x = Math.PI / 2;  // 枪管
+part(new THREE.BoxGeometry(.07, .2, .09), new THREE.MeshStandardMaterial({ color: 0x4a3426 }), 0, -.15, .12).rotation.x = .25;  // 握把
+part(new THREE.BoxGeometry(.03, .04, .05), gunMat, 0, .09, -.15);                             // 准星
+const flash = part(new THREE.SphereGeometry(.07, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffd34d, fog: false }), 0, .02, -.6);
+flash.visible = false;                                                                        // 枪口火光
+const GUN_REST = new THREE.Vector3(.28, -.26, -.65);
+gun.position.copy(GUN_REST);
+camera.add(gun); scene.add(camera);
+let recoil = 0, flashT = 0, bob = 0;
+
+// ---------- 箱子（位置由服务器决定）、其他玩家、网络 ----------
+const crateTex = cvTex(256, 256, x => {
+  x.fillStyle = '#8b5a2b'; x.fillRect(0, 0, 256, 256);
+  x.strokeStyle = '#5a3a1a'; x.lineWidth = 16; x.strokeRect(8, 8, 240, 240);
+  x.beginPath(); x.moveTo(8, 8); x.lineTo(248, 248); x.moveTo(248, 8); x.lineTo(8, 248); x.stroke();
+});
+const mobs = new Map();                      // 怪物 id -> { g 模型, type, hp, max, alive, tgt 服务器给的最新位置, ... }
+let ws = null, myTeam = 0, protectOn = true, myUid = '', myId = 0, mode = 'coop', myHp = 100, myAlive = true, wave = 0, leftN = 0, shots = 0;
+const others = new Map(), TEAM_COL = [0x3aa0ff, 0xff5a4a];
+
+function mm(o) { const m = new THREE.MeshStandardMaterial(o); m.userData.em = m.emissive.clone(); return m; }
+function makeMob(b) {                         // 0 蝙蝠  1 幽灵  2 怪物
+  const g = new THREE.Group(), mats = [];
+  const M = o => { const m = mm(o); mats.push(m); return m; };
+  const add = (geo, mat, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
+  let anim;
+  if (b.type === 0) {
+    const fur = M({ color: 0x3a2a4a, roughness: .9 }), red = M({ color: 0xff2020, emissive: 0xaa0000 });
+    add(new THREE.SphereGeometry(.38, 12, 10), fur, 0, 0, 0).scale.set(1, .9, 1.25);              // 身体
+    add(new THREE.SphereGeometry(.26, 12, 10), fur, 0, .2, -.42);                                  // 头
+    [-.12, .12].forEach(x => { add(new THREE.ConeGeometry(.08, .28, 6), fur, x, .5, -.42); add(new THREE.SphereGeometry(.045, 6, 6), red, x, .24, -.64); });   // 耳朵、红眼
+    const wingMat = M({ color: 0x2a1c38, side: THREE.DoubleSide, roughness: 1 });
+    const wings = [-1, 1].map(sg => { const w = new THREE.Group(); g.add(w); add(new THREE.PlaneGeometry(1.5, .7), wingMat, sg * .75, 0, 0, w).rotation.x = -Math.PI / 2; return w; });
+    anim = T => { const a = Math.sin(T * 20 + b.id) * .8; wings[0].rotation.z = a; wings[1].rotation.z = -a; };     // 扇翅膀
+  } else if (b.type === 1) {
+    const ghostMat = () => M({ color: 0xeaf2ff, emissive: 0x4466aa, emissiveIntensity: .5, transparent: true, opacity: .72, side: THREE.DoubleSide });
+    const pts = [[0, 1.7], [.35, 1.65], [.62, 1.4], [.72, 1.0], [.78, .5], [.9, 0]].map(([x, y]) => new THREE.Vector2(x, y));
+    add(new THREE.LatheGeometry(pts, 16), ghostMat(), 0, -.85, 0);                                // 飘逸的身体
+    const dark = M({ color: 0x050510 });
+    [-.25, .25].forEach(x => add(new THREE.SphereGeometry(.13, 10, 10), dark, x, .35, -.66).scale.set(.8, 1.3, .5));   // 黑洞眼睛
+    add(new THREE.SphereGeometry(.14, 10, 10), dark, 0, -.05, -.7).scale.set(1.1, 1.5, .5);        // 嘴
+    [-1, 1].forEach(sg => add(new THREE.SphereGeometry(.18, 8, 8), ghostMat(), sg * .85, -.1, -.1).scale.set(.7, 1.5, .7));   // 手臂
+    anim = T => { g.rotation.z = Math.sin(T * 2 + b.id) * .08; };                                  // 左右轻晃
+  } else {
+    const skin = M({ color: 0x4f7a3a, roughness: .9 }), dark = M({ color: 0x2c4a22 }), horn = M({ color: 0xe8e0c0 }), eye = M({ color: 0xffe14a, emissive: 0xffaa00 });
+    add(new THREE.SphereGeometry(.8, 14, 12), skin, 0, .55, 0).scale.set(1.1, 1.15, .9);          // 身体
+    add(new THREE.SphereGeometry(.5, 14, 12), skin, 0, 1.55, -.1);                                 // 头
+    [-.28, .28].forEach(x => { add(new THREE.ConeGeometry(.12, .5, 8), horn, x, 2.0, -.1).rotation.z = -x * 1.2; add(new THREE.SphereGeometry(.09, 8, 8), eye, x * .75, 1.62, -.55); });   // 角、黄眼
+    add(new THREE.BoxGeometry(.5, .12, .08), M({ color: 0x220808 }), 0, 1.35, -.55);               // 嘴
+    const limb = (sg, y, len, rad, mat) => { const a = new THREE.Group(); a.position.set(sg, y, 0); g.add(a); add(new THREE.CylinderGeometry(rad, rad * .85, len, 8), mat, 0, -len / 2, 0, a); return a; };
+    const arms = [limb(-.95, 1.0, 1.1, .2, skin), limb(.95, 1.0, 1.1, .2, skin)], legs = [limb(-.4, -.25, .9, .25, dark), limb(.4, -.25, .9, .25, dark)];
+    g.children.forEach(c => { c.position.y -= .3; });                                              // 让脚底刚好踩在地面
+    anim = (T, v) => { const k = Math.min(1, v / 3), sw = Math.sin(T * 6) * .6 * k; arms[0].rotation.x = sw; arms[1].rotation.x = -sw; legs[0].rotation.x = -sw; legs[1].rotation.x = sw; };
+  }
+  const bar = new THREE.Group(); bar.position.y = b.type === 0 ? .9 : b.type === 1 ? 1.4 : 2.4; bar.visible = false;      // 血条（受伤后才显示）
+  const bg = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x220000, depthTest: false, fog: false })); bg.scale.set(1.5, .16, 1);
+  const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x44dd55, depthTest: false, fog: false })); fill.scale.set(1.4, .1, 1);
+  bar.add(bg, fill); g.add(bar);
+  return { g, type: b.type, hp: b.hp, max: b.max, alive: b.alive, mats, anim, bar, barFill: fill, tgt: null, flash: 0, dying: 0 };
+}
+function setBoxes(list) {                    // 新一波：清掉旧的，再按服务器给的类型和位置生成（函数名沿用）
+  mobs.forEach(o => scene.remove(o.g)); mobs.clear();
+  list.forEach(b => { const o = makeMob(b); o.g.position.set(b.x, b.y, b.z); o.g.rotation.y = b.ry; o.g.visible = b.alive; mobs.set(b.id, o); scene.add(o.g); });
+  leftN = list.filter(b => b.alive).length; hud();
+}
+function applyMobs(list) { list.forEach(a => { const o = mobs.get(a[0]); if (o) o.tgt = a; }); }      // a = [id, x, y, z, 朝向]
+function updateMobs(dt) {
+  const T = performance.now() / 1000;
+  mobs.forEach(o => {
+    const g = o.g;
+    if (o.dying > 0) { o.dying -= dt; g.scale.setScalar(Math.max(.01, o.dying / .35)); g.position.y += dt * 2; if (o.dying <= 0) g.visible = false; return; }   // 被消灭：缩小飘走
+    if (!o.alive) return;
+    const px = g.position.x, pz = g.position.z, t = o.tgt;
+    if (t) { g.position.x += (t[1] - g.position.x) * .3; g.position.y += (t[2] - g.position.y) * .3; g.position.z += (t[3] - g.position.z) * .3; g.rotation.y = t[4]; }
+    o.anim(T, Math.hypot(g.position.x - px, g.position.z - pz) / Math.max(dt, .001));
+    o.flash = Math.max(0, o.flash - dt);                                                          // 被打中时闪红
+    o.mats.forEach(m => { if (o.flash > 0) m.emissive.setRGB(.9, 0, 0); else m.emissive.copy(m.userData.em); });
+    o.bar.visible = o.hp < o.max; o.barFill.scale.x = Math.max(.01, o.hp / o.max) * 1.4;
+  });
+}
+function hud(players) {
+  $('wave').textContent = wave; $('left').textContent = leftN;
+  const f = $('hpfill'); f.style.width = myHp + '%'; f.style.background = myHp > 40 ? '#4cd964' : '#ff453a';
+  if (!players) return;
+  const sb = $('sb'); sb.textContent = '';
+  [...players].sort((a, b) => b.score - a.score).forEach(p => {
+    const d = document.createElement('div');
+    d.textContent = (peers.get(p.id) && peers.get(p.id).speaking ? '🔊 ' : p.voice ? '🎤 ' : '') + p.name + '：' + p.score + (p.alive ? '' : '（阵亡）');     // textContent，名字不会被当成 HTML
+    d.style.color = mode === 'pvp' ? (p.team ? '#ff8a7a' : '#7ac0ff') : '#fff';
+    if (p.id === myId) d.style.fontWeight = '700';
+    sb.appendChild(d);
+  });
+}
+function nameTag(text) {
+  const t = cvTex(256, 64, (x, w, h) => {
+    x.fillStyle = 'rgba(0,0,0,.55)'; x.fillRect(0, 0, w, h); x.fillStyle = '#fff';
+    x.font = '32px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, w / 2, h / 2);
+  });
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, fog: false, depthTest: false }));
+  s.scale.set(2, .5, 1); s.position.y = 3.6; return s;
+}
+let avatars = {};                            // 玩家 id -> 头像 dataURL
+const faceTex = cvTex(128, 128, (x, w, h) => {      // 默认脸：眼睛、眉毛、鼻子、嘴
+  x.fillStyle = '#e0b08a'; x.fillRect(0, 0, w, h);
+  const eye = cx => {
+    x.fillStyle = '#fff'; x.beginPath(); x.ellipse(cx, 58, 11, 7, 0, 0, 7); x.fill();
+    x.fillStyle = '#3b2a1e'; x.beginPath(); x.arc(cx, 58, 5, 0, 7); x.fill();
+    x.strokeStyle = '#3a2615'; x.lineWidth = 4; x.beginPath(); x.moveTo(cx - 14, 44); x.lineTo(cx + 12, 42); x.stroke();
+  };
+  eye(40); eye(88);
+  x.strokeStyle = '#b98763'; x.lineWidth = 3; x.beginPath(); x.moveTo(64, 62); x.lineTo(60, 82); x.lineTo(68, 84); x.stroke();
+  x.strokeStyle = '#8a3b36'; x.lineWidth = 4; x.beginPath(); x.moveTo(46, 100); x.quadraticCurveTo(64, 110, 82, 100); x.stroke();
+});
+const std = c => new THREE.MeshStandardMaterial({ color: c, roughness: .85 });
+const WOOD = std(0x7a5230), STEEL = std(0x9aa3ad);
+const SKIN = std(0xe0b08a), HAIR = std(0x2b1d14), PANTS = std(0x2f3a52), SHOE = std(0x1c1c1c), SHIRT = TEAM_COL.map(std);
+const G = {
+  torso: new THREE.BoxGeometry(.95, 1.1, .5), leg: new THREE.CylinderGeometry(.17, .15, 1.3, 10), shoe: new THREE.BoxGeometry(.34, .16, .55),
+  arm: new THREE.CylinderGeometry(.11, .1, .9, 10), hand: new THREE.SphereGeometry(.11, 8, 8), neck: new THREE.CylinderGeometry(.12, .13, .2, 10),
+  head: new THREE.SphereGeometry(.38, 20, 16), hair: new THREE.SphereGeometry(.38 * 1.03, 18, 12, 0, Math.PI * 2, 0, 1.45),
+  face: new THREE.SphereGeometry(.38 * 1.05, 20, 16, 1.5 * Math.PI - .85, 1.7, .85, 1.5),     // 正对前方（-z）的球面罩，头像/默认脸贴在这里
+  gun: new THREE.BoxGeometry(.1, .14, .8), handle: new THREE.CylinderGeometry(.03, .03, 1.3, 8), blade: new THREE.BoxGeometry(.26, .03, .34), pickHead: new THREE.BoxGeometry(.7, .05, .06)
+};
+function setFace(g, url) {
+  new THREE.TextureLoader().load(url, t => { t.encoding = sRGB; const m = g.userData.face.material; m.map = t; m.needsUpdate = true; });
+}
+function makeOther(p) {
+  const g = new THREE.Group(), shirt = SHIRT[p.team % 2];
+  const add = (geo, mat, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
+  add(G.torso, shirt, 0, 1.85, 0); add(G.neck, SKIN, 0, 2.5, 0);
+  const legs = [-.22, .22].map(x => {        // 腿：以髋关节为轴，才能前后摆动
+    const hip = new THREE.Group(); hip.position.set(x, 1.4, 0); g.add(hip);
+    add(G.leg, PANTS, 0, -.6, 0, hip); add(G.shoe, SHOE, 0, -1.32, -.08, hip); return hip;
+  });
+  const armL = new THREE.Group(); armL.position.set(-.55, 2.25, 0); g.add(armL);        // 左臂：以肩为轴摆动
+  add(G.arm, shirt, 0, -.45, 0, armL); add(G.hand, SKIN, 0, -.9, 0, armL);
+  add(G.arm, shirt, .55, 2.09, -.42).rotation.x = 1.2; add(G.hand, SKIN, .55, 1.93, -.84);   // 右臂向前持枪
+  const gunM = add(G.gun, gunMat, .55, 1.93, -1.15);
+  const shovelM = new THREE.Group(); shovelM.position.set(.55, 1.93, -1.0); shovelM.rotation.x = -.25; shovelM.visible = false; g.add(shovelM);
+  add(G.handle, WOOD, 0, 0, 0, shovelM).rotation.x = Math.PI / 2; add(G.blade, STEEL, 0, 0, -.75, shovelM);
+  const pickM = new THREE.Group(); pickM.position.set(.55, 1.93, -1.0); pickM.rotation.x = -.25; pickM.visible = false; g.add(pickM);
+  add(G.handle, WOOD, 0, 0, 0, pickM).rotation.x = Math.PI / 2; add(G.pickHead, STEEL, 0, 0, -.6, pickM);
+  const head = new THREE.Group(); head.position.set(0, 2.5, 0); head.scale.y = 1.1; g.add(head);   // 头会随视线上下抬
+  add(G.head, SKIN, 0, .42, 0, head); add(G.hair, HAIR, 0, .42, 0, head);
+  const face = add(G.face, new THREE.MeshStandardMaterial({ map: faceTex, roughness: .8 }), 0, .42, 0, head);
+  g.userData.head = head; g.userData.face = face; g.userData.gunM = gunM; g.userData.shovelM = shovelM; g.userData.pickM = pickM; g.userData.legs = legs; g.userData.armL = armL; g.userData.phase = 0; g.userData.spd = 0;
+  const body = [...g.children];                // 人形的所有部件（坐飞机时整体隐藏）
+  const planeM = new THREE.Group(); planeM.position.y = 2.4; planeM.visible = false; g.add(planeM);
+  const pr = std(0xd8342c), pw = std(0xf0f0ee);
+  add(new THREE.CylinderGeometry(.34, .3, 2.6, 12), pw, 0, 0, 0, planeM).rotation.x = Math.PI / 2;        // 机身
+  add(new THREE.ConeGeometry(.34, .9, 12), pr, 0, 0, -1.7, planeM).rotation.x = -Math.PI / 2;             // 机头
+  add(new THREE.BoxGeometry(4.4, .1, .95), pw, 0, .05, -.2, planeM);                                     // 机翼
+  add(new THREE.BoxGeometry(1.6, .08, .6), pw, 0, .05, 1.2, planeM);                                     // 平尾
+  add(new THREE.BoxGeometry(.08, .8, .6), pr, 0, .45, 1.2, planeM);                                      // 垂尾
+  const prop = add(new THREE.BoxGeometry(1.5, .08, .05), std(0x333333), 0, 0, -2.2, planeM);              // 螺旋桨
+  g.userData.body = body; g.userData.planeM = planeM; g.userData.prop = prop;
+  g.add(nameTag(p.name)); scene.add(g);
+  if (avatars[p.id]) setFace(g, avatars[p.id]);
+  return g;
+}
+function applyState(players) {
+  const seen = new Set();
+  players.forEach(p => {
+    if (p.id === myId) { myHp = p.hp; myAlive = p.alive; return; }
+    seen.add(p.id);
+    let g = others.get(p.id);
+    if (!g) { g = makeOther(p); g.position.set(p.x, 0, p.z); others.set(p.id, g); }
+    g.userData.tgt = p; g.visible = p.alive;
+  });
+  others.forEach((g, id) => { if (!seen.has(id)) { scene.remove(g); others.delete(id); } });
+  hud(players); syncPeers(players);
+}
+function flashDamage() {
+  const d = $('dmg'); d.style.transition = 'none'; d.style.opacity = .7;
+  setTimeout(() => { d.style.transition = 'opacity .6s'; d.style.opacity = 0; }, 40);
+}
+// ---------- 地图、障碍物、碰撞、跳跃 ----------
+let obstacles = [], mapBounds = 45, feetY = 0, vy = 0, onGround = true;
+const PW = .4, PH = 3.2;                     // 玩家碰撞盒：半宽 0.4，高 3.2（眼睛在脚上方 3）
+const styleCache = {};
+function styleTex(style, color) {            // 程序生成的外墙/围墙/木箱贴图，地图可用 texture 字段换成自己的图片
+  const key = style + color; if (styleCache[key]) return styleCache[key];
+  const c = color || { building: '#d8c9a8', wall: '#9aa3ad', crate: '#8b5a2b' }[style] || '#9aa3ad';
+  return styleCache[key] = style === 'crate' ? crateTex : cvTex(64, 64, (x, w, h) => {
+    x.fillStyle = c; x.fillRect(0, 0, w, h);
+    if (style === 'building') { x.fillStyle = '#3d6a96'; x.fillRect(14, 12, 36, 38); x.fillStyle = 'rgba(255,255,255,.35)'; x.fillRect(14, 12, 36, 6); }
+    else { x.strokeStyle = 'rgba(0,0,0,.25)'; x.strokeRect(0, 0, w, h); x.beginPath(); x.moveTo(0, h / 2); x.lineTo(w, h / 2); x.stroke(); }
+  });
+}
+function obsMaterials(o, id) {               // BoxGeometry 六个面：+x, -x, +y, -y, +z, -z
+  const [w, h, d] = o.size, base = styleTex(o.style || 'wall', o.color);
+  const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  const fi = { '+x': 0, '-x': 1, '+z': 4, '-z': 5 }[o.facade || '+z'];   // 立面朝向，默认朝 +z（面向出生点）
+  return dims.map(([rx, ry], i) => {
+    const t = base.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(Math.max(1, Math.round(rx / 3)), Math.max(1, Math.round(ry / 3)));
+    const m = new THREE.MeshStandardMaterial({ map: t });
+    if (o.texture && i === fi) new THREE.TextureLoader().load('/maps/' + id + '/' + encodeURIComponent(o.texture), tx => {
+      tx.encoding = sRGB; m.map = tx; m.needsUpdate = true;       // 照片只贴在立面这一面，其余面保持外墙样式
+    });
+    return m;
+  });
+}
+function makeTree(o) {                      // 树干（有碰撞）+ 两层树冠（在玩家头顶以上，不挡路）
+  const [w, h] = o.size, g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(w * .4, w * .5, h, 8), std(0x6b4a2b)));
+  const leaf = new THREE.MeshStandardMaterial({ color: new THREE.Color(o.color || '#3f7d3a'), flatShading: true });
+  [[2.6, 5, h / 2 - 1], [1.9, 4, h / 2 + 1.5]].forEach(([r, ht, base]) => {
+    const c = new THREE.Mesh(new THREE.ConeGeometry(w * r, ht, 10), leaf); c.position.y = base + ht / 2; g.add(c);
+  });
+  return g;
+}
+function buildMap(map, id) {
+  mapBounds = map.bounds || 45;
+  (map.obstacles || []).forEach(o => {
+    const [w, h, d] = o.size, [x, y, z] = o.pos;
+    const obj = o.style === 'tree' ? makeTree(o) : new THREE.Mesh(new THREE.BoxGeometry(w, h, d), obsMaterials(o, id));
+    obj.position.set(x, y, z); scene.add(obj);
+    obstacles.push({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
+  });
+  if (map.sky) applyTex('sky', '/maps/' + id + '/' + encodeURIComponent(map.sky));          // 背景：全景图，可替换
+  if (map.ground) applyTex('ground', '/maps/' + id + '/' + encodeURIComponent(map.ground));
+  (map.decals || []).forEach(dc => {         // 立面贴片：带透明背景的照片竖在楼前（只负责好看，不参与碰撞）
+    const mat = new THREE.MeshBasicMaterial({ alphaTest: .5 });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(dc.size[0], dc.size[1]), mat);
+    mesh.position.set(dc.pos[0], dc.pos[1], dc.pos[2]); mesh.visible = false;
+    mesh.rotation.y = { '+z': 0, '-z': Math.PI, '+x': Math.PI / 2, '-x': -Math.PI / 2 }[dc.facing || '+z'];
+    new THREE.TextureLoader().load('/maps/' + id + '/' + encodeURIComponent(dc.texture), t => { t.encoding = sRGB; mat.map = t; mat.needsUpdate = true; mesh.visible = true; },
+      undefined, () => { $('mode').textContent += '｜⚠ 立面图 ' + dc.texture + ' 加载失败'; console.warn('立面图加载失败', dc.texture); });
+    scene.add(mesh);
+  });
+}
+function hitsObs(x, y, z) {
+  for (const o of obstacles)
+    if (x + PW > o.min.x && x - PW < o.max.x && y + PH > o.min.y && y < o.max.y && z + PW > o.min.z && z - PW < o.max.z) return true;
+  if (bricks.size)                                                       // 砌出来的砖
+    for (let i = Math.floor(x - PW); i < Math.ceil(x + PW); i++) for (let j = Math.floor(y); j < Math.ceil(y + PH); j++) for (let k = Math.floor(z - PW); k < Math.ceil(z + PW); k++)
+      { const bb = bricks.get(i + ',' + j + ',' + k); if (bb && !(bb.t === 4 && bb.open)) return true; }          // 开着的门可以走过去
+  return false;
+}
+function teleport(x, z) { camera.position.x = x; camera.position.z = z; feetY = 0; vy = 0; }
+function moveXZ(mx, mz) {                    // 分轴移动：撞墙时可以贴墙滑动
+  const p = camera.position, B = mapBounds, stuck = hitsObs(p.x, feetY, p.z);   // 万一被新刷出的箱子卡住，允许走出来
+  if (stuck || !hitsObs(p.x + mx, feetY, p.z)) p.x += mx;
+  if (stuck || !hitsObs(p.x, feetY, p.z + mz)) p.z += mz;
+  p.x = Math.max(-B, Math.min(B, p.x)); p.z = Math.max(-B, Math.min(B, p.z));
+}
+function stepVertical(dt) {
+  if (myAlive && keys[' '] && onGround) vy = 10;
+  vy -= 24 * dt; onGround = false; const stuck = hitsObs(camera.position.x, feetY, camera.position.z);
+  const p = camera.position; let rem = vy * dt; const sgn = Math.sign(rem);
+  while (Math.abs(rem) > 1e-4) {             // 小步前进，精确落在障碍物顶面
+    const st = sgn * Math.min(.05, Math.abs(rem));
+    if (!stuck && hitsObs(p.x, feetY + st, p.z)) { if (vy < 0) onGround = true; vy = 0; break; }
+    feetY += st; rem -= st;
+  }
+  if (feetY <= 0) { feetY = 0; if (vy < 0) vy = 0; onGround = true; }
+}
+
+// ---------- 铲子与砌砖 ----------
+let planeSpeed = 18, bank = 0, engine = null;     // 飞机：速度、倾斜、引擎声
+let tool = 0, slot = 0, blockType = 0, swing = 0, aim = null, myBuilt = [];   // tool：0 枪 1 铲子 2 镐子          // tool：0 枪，1 铲子
+const BRICK_MAX = 4000;
+const tile = (draw) => cvTex(64, 64, draw);
+const BLOCK_TEX = [
+  tile((x, w, h) => {                                      // 0 砖
+    x.fillStyle = '#9a4a32'; x.fillRect(0, 0, w, h); x.strokeStyle = '#d4c7b0'; x.lineWidth = 3;
+    for (let r = 0; r < 4; r++) { const y = r * 16; x.beginPath(); x.moveTo(0, y); x.lineTo(w, y); x.stroke();
+      for (let c = (r % 2) * 16; c < w + 16; c += 32) { x.beginPath(); x.moveTo(c, y); x.lineTo(c, y + 16); x.stroke(); } }
+  }),
+  tile((x, w, h) => {                                      // 1 木板
+    x.fillStyle = '#b5894f'; x.fillRect(0, 0, w, h);
+    for (let r = 0; r < 4; r++) { x.fillStyle = r % 2 ? '#a77a42' : '#c19a62'; x.fillRect(0, r * 16, w, 15);
+      x.strokeStyle = 'rgba(90,55,20,.35)'; x.lineWidth = 1; for (let i = 0; i < 3; i++) { x.beginPath(); x.moveTo(0, r * 16 + 4 + i * 4); x.lineTo(w, r * 16 + 5 + i * 4); x.stroke(); } }
+    x.strokeStyle = '#6b4a25'; x.lineWidth = 2; for (let r = 0; r <= 4; r++) { x.beginPath(); x.moveTo(0, r * 16); x.lineTo(w, r * 16); x.stroke(); }
+  }),
+  tile((x, w, h) => {                                      // 2 玻璃
+    x.fillStyle = '#bfe6f5'; x.fillRect(0, 0, w, h); x.strokeStyle = '#ffffff'; x.lineWidth = 4; x.strokeRect(2, 2, w - 4, h - 4);
+    x.strokeStyle = 'rgba(255,255,255,.9)'; x.lineWidth = 3; x.beginPath(); x.moveTo(12, 40); x.lineTo(36, 14); x.moveTo(24, 52); x.lineTo(50, 26); x.stroke();
+  }),
+  tile((x, w, h) => {                                      // 3 石头
+    x.fillStyle = '#8a8d91'; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < 260; i++) { const g = 110 + Math.random() * 60 | 0; x.fillStyle = `rgb(${g},${g},${g + 4})`; x.fillRect(Math.random() * w, Math.random() * h, 3, 3); }
+    x.strokeStyle = 'rgba(40,40,45,.5)'; x.lineWidth = 2; x.beginPath(); x.moveTo(8, 10); x.lineTo(24, 26); x.lineTo(20, 44); x.moveTo(40, 6); x.lineTo(46, 30); x.stroke();
+    x.strokeStyle = '#5d6065'; x.lineWidth = 3; x.strokeRect(0, 0, w, h);
+  }),
+  tile((x, w, h) => {                                      // 4 门：木门、嵌板、门把手
+    x.fillStyle = '#8a5a2b'; x.fillRect(0, 0, w, h); x.strokeStyle = '#5b3a18'; x.lineWidth = 3; x.strokeRect(2, 2, w - 4, h - 4);
+    x.strokeStyle = '#6e4620'; x.lineWidth = 2; x.strokeRect(10, 8, w - 20, 22); x.strokeRect(10, 36, w - 20, 20);
+    x.fillStyle = '#d9b44a'; x.beginPath(); x.arc(w - 12, h / 2, 3.5, 0, 7); x.fill();
+  }),
+  tile((x, w, h) => {                                      // 5 窗：白色窗框 + 十字窗棂，玻璃部分半透明
+    x.fillStyle = 'rgba(190,230,245,.28)'; x.fillRect(0, 0, w, h);
+    x.strokeStyle = '#f2f2ee'; x.lineWidth = 7; x.strokeRect(3, 3, w - 6, h - 6);
+    x.lineWidth = 4; x.beginPath(); x.moveTo(w / 2, 3); x.lineTo(w / 2, h - 3); x.moveTo(3, h / 2); x.lineTo(w - 3, h / 2); x.stroke();
+    x.strokeStyle = 'rgba(255,255,255,.7)'; x.lineWidth = 2; x.beginPath(); x.moveTo(10, 24); x.lineTo(22, 12); x.stroke();
+  })
+];
+const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+const slabGeo = new THREE.BoxGeometry(.12, 1, 1); slabGeo.translate(-.44, 0, 0);          // 开着的门：贴在格子一侧的薄门板
+const BLOCK_MAT = [0, 1, 2, 3, 4, 5, 4].map(i => new THREE.MeshStandardMaterial(
+  i === 2 ? { map: BLOCK_TEX[2], transparent: true, opacity: .45, depthWrite: false }
+  : i === 5 ? { map: BLOCK_TEX[5], transparent: true, alphaTest: .05, depthWrite: false, side: THREE.DoubleSide }   // 窗：框不透明，玻璃半透明
+  : { map: BLOCK_TEX[i], side: i === 4 ? THREE.DoubleSide : THREE.FrontSide }));
+const meshes = BLOCK_MAT.map((mat, i) => {   // 序号：0 砖 1 木板 2 玻璃 3 石头 4 门(关) 5 窗 6 门(开)
+  const m = new THREE.InstancedMesh(i === 6 ? slabGeo : blockGeo, mat, BRICK_MAX);
+  m.count = 0; m.frustumCulled = false; if (i === 2 || i === 5) m.renderOrder = 2; scene.add(m); return m;
+});
+const bricks = new Map(), lists = Array.from({ length: 7 }, () => []), _bm = new THREE.Matrix4();     // 格子 -> {类型, 序号, 砌的人}
+const bk = c => c[0] + ',' + c[1] + ',' + c[2];
+function brickPut(t, i, c) { _bm.makeTranslation(c[0] + .5, c[1] + .5, c[2] + .5); meshes[t].setMatrixAt(i, _bm); meshes[t].instanceMatrix.needsUpdate = true; }
+function instAdd(mi, c) {
+  const L = lists[mi]; if (L.length >= BRICK_MAX) return -1;
+  L.push(c.slice(0, 3)); brickPut(mi, L.length - 1, c); meshes[mi].count = L.length; return L.length - 1;
+}
+function instDel(mi, i) {
+  const L = lists[mi], last = L.pop();
+  if (i < L.length) { L[i] = last; bricks.get(bk(last)).i = i; brickPut(mi, i, last); }          // 用最后一块补位
+  meshes[mi].count = L.length; meshes[mi].instanceMatrix.needsUpdate = true;
+}
+function addBrick(c) {                         // c = [x, y, z, 类型, 砌的人, (门才有) 开/关]
+  const k = bk(c), t = c[3] | 0; if (bricks.has(k) || t < 0 || t > 5) return;
+  const open = t === 4 && c[5] ? 1 : 0, mi = open ? 6 : t, i = instAdd(mi, c); if (i < 0) return;
+  bricks.set(k, { t, mi, i, o: c[4], open });
+}
+function delBrick(c) { const k = bk(c), b = bricks.get(k); if (!b) return; bricks.delete(k); instDel(b.mi, b.i); }
+function setDoor(cells, open) {                // 开/关门：在“实心门”和“薄门板”两种显示之间切换
+  cells.forEach(c => {
+    const b = bricks.get(bk(c)); if (!b || b.t !== 4) return;
+    instDel(b.mi, b.i); b.open = open ? 1 : 0; b.mi = open ? 6 : 4; b.i = instAdd(b.mi, c);
+  });
+}
+const canRemove = b => !protectOn || b.o === myUid || ![...others.values()].some(g => g.userData.tgt && g.userData.tgt.uid === b.o);   // 自己砌的，或砌的人不在房间里       // 自己砌的，或砌的人已离开
+const shovel = new THREE.Group();             // 第一人称铲子：木柄 + 铁铲头
+const handle = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, 1.1, 8), new THREE.MeshStandardMaterial({ color: 0x7a5230 })); handle.rotation.x = Math.PI / 2;
+const blade = new THREE.Mesh(new THREE.BoxGeometry(.26, .03, .34), new THREE.MeshStandardMaterial({ color: 0x9aa3ad, metalness: .6, roughness: .4 })); blade.position.z = -.7;
+shovel.add(handle, blade); shovel.position.copy(GUN_REST); shovel.visible = false; camera.add(shovel);
+const pickaxe = new THREE.Group();               // 第一人称镐子
+const pHandle = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, 1.0, 8), new THREE.MeshStandardMaterial({ color: 0x7a5230 })); pHandle.rotation.x = Math.PI / 2;
+const pHead = new THREE.Mesh(new THREE.BoxGeometry(.7, .05, .06), new THREE.MeshStandardMaterial({ color: 0x9aa3ad, metalness: .6, roughness: .4 })); pHead.position.z = -.5;
+pickaxe.add(pHandle, pHead); pickaxe.position.copy(GUN_REST); pickaxe.visible = false; camera.add(pickaxe);
+const cockpit = new THREE.Group();            // 第一人称飞机：机头、机翼、螺旋桨
+{
+  const red = new THREE.MeshStandardMaterial({ color: 0xd8342c }), white = new THREE.MeshStandardMaterial({ color: 0xf0f0ee });
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(.3, 1.1, 14), red); nose.rotation.x = -Math.PI / 2; nose.position.set(0, -.7, -2.1);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.3, .36, 1.4, 14), white); body.rotation.x = Math.PI / 2; body.position.set(0, -.7, -1.2);
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(2.8, .05, .7), white); wing.position.set(0, -.55, -1.5);
+  [-1, 1].forEach(sg => { const tip = new THREE.Mesh(new THREE.BoxGeometry(.5, .06, .72), red); tip.position.set(sg * 1.25, -.55, -1.5); cockpit.add(tip); });
+  const prop = new THREE.Mesh(new THREE.BoxGeometry(1.4, .08, .04), new THREE.MeshStandardMaterial({ color: 0x333333 })); prop.position.set(0, -.7, -2.7);
+  cockpit.userData.prop = prop; cockpit.add(nose, body, wing, prop);
+}
+cockpit.visible = false; camera.add(cockpit);
+const SLOTS = [{ n: '枪', icon: '🔫' }, { n: '砖', c: '#9a4a32' }, { n: '木板', c: '#b5894f' }, { n: '玻璃', c: '#bfe6f5' }, { n: '石头', c: '#8a8d91' }, { n: '门', c: '#8a5a2b' }, { n: '窗', c: '#d8e8f0' }, { n: '镐子', icon: '⛏' }, { n: '飞机', icon: '✈' }];
+const barEl = $('bar');
+SLOTS.forEach((sl, i) => { const d = document.createElement('div'); d.className = 'slot'; d.innerHTML = (sl.icon ? '<i>' + sl.icon + '</i>' : '<b style="background:' + sl.c + '"></b>') + (i + 1) + ' ' + sl.n; barEl.appendChild(d); });
+const ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.01, 1.01, 1.01)), new THREE.LineBasicMaterial({ color: 0xffff66 }));
+ghost.visible = false; scene.add(ghost);       // 黄色线框：下一块砖会砌在这里
+
+function setSlot(i) {                        // 物品栏：1 枪，2–7 铲子+方块（砖/木板/玻璃/石头/门/窗），8 镐子，9 飞机
+  const was = tool;
+  slot = i; tool = i === 0 ? 0 : i === 7 ? 2 : i === 8 ? 3 : 1; if (tool === 1) blockType = i - 1;
+  gun.visible = tool === 0; shovel.visible = tool === 1; pickaxe.visible = tool === 2; cockpit.visible = tool === 3;
+  $('tool').textContent = SLOTS[i].n; [...barEl.children].forEach((d, j) => d.classList.toggle('on', j === i));
+  if (tool === 3 && was !== 3) startPlane(); else if (tool !== 3 && was === 3) stopPlane();
+  if (!tool || tool === 3) ghost.visible = false;
+}
+function usePrimary() { if (tool === 0 || tool === 3) shoot(); else if (tool === 1) buildAt('add'); else buildAt('del'); }
+function slab(o, d, lo, hi) {                 // 射线与方块相交，返回距离和被击中面的法线
+  let tmin = 0, tmax = 1e9, n = null;
+  for (const a of ['x', 'y', 'z']) {
+    if (Math.abs(d[a]) < 1e-9) { if (o[a] < lo[a] || o[a] > hi[a]) return null; continue; }
+    let t1 = (lo[a] - o[a]) / d[a], t2 = (hi[a] - o[a]) / d[a], sg = -1;
+    if (t1 > t2) { [t1, t2] = [t2, t1]; sg = 1; }
+    if (t1 > tmin) { tmin = t1; n = a === 'x' ? [sg, 0, 0] : a === 'y' ? [0, sg, 0] : [0, 0, sg]; }
+    tmax = Math.min(tmax, t2); if (tmin > tmax) return null;
+  }
+  return n ? { t: tmin, n } : null;
+}
+function ddaBricks(o, d, maxT) {              // 沿视线逐格找第一块砖
+  if (!bricks.size) return null;
+  let x = Math.floor(o.x), y = Math.floor(o.y), z = Math.floor(o.z);
+  const sx = Math.sign(d.x), sy = Math.sign(d.y), sz = Math.sign(d.z);
+  const dx = sx ? Math.abs(1 / d.x) : Infinity, dy = sy ? Math.abs(1 / d.y) : Infinity, dz = sz ? Math.abs(1 / d.z) : Infinity;
+  let tx = sx ? (sx > 0 ? x + 1 - o.x : o.x - x) * dx : Infinity, ty = sy ? (sy > 0 ? y + 1 - o.y : o.y - y) * dy : Infinity, tz = sz ? (sz > 0 ? z + 1 - o.z : o.z - z) * dz : Infinity;
+  let t = 0, n = null;
+  while (t <= maxT) {
+    if (n && bricks.has(x + ',' + y + ',' + z)) return { t, n, cell: [x, y, z] };
+    if (tx < ty && tx < tz) { x += sx; t = tx; tx += dx; n = [-sx, 0, 0]; }
+    else if (ty < tz) { y += sy; t = ty; ty += dy; n = [0, -sy, 0]; }
+    else { z += sz; t = tz; tz += dz; n = [0, 0, -sz]; }
+  }
+  return null;
+}
+function updateAim() {                        // 每帧算出：准星指的表面 -> 下一块方块的格子 / 要拆的方块
+  aim = null; if (!tool || tool === 3 || !myAlive) { ghost.visible = false; return; }
+  const o = camera.position, d = new THREE.Vector3(); camera.getWorldDirection(d);
+  let best = { t: 8, n: null, cell: null };
+  if (d.y < 0) { const t = -o.y / d.y; if (t > 0 && t < best.t) best = { t, n: [0, 1, 0], cell: null }; }
+  for (const ob of obstacles) { const r = slab(o, d, ob.min, ob.max); if (r && r.t < best.t) best = { t: r.t, n: r.n, cell: null }; }
+  const br = ddaBricks(o, d, best.t); if (br && br.t < best.t) best = br;
+  if (!best.n || best.t >= 8) { ghost.visible = false; return; }
+  const pt = [o.x + d.x * best.t, o.y + d.y * best.t, o.z + d.z * best.t];
+  const place = pt.map((v, i) => Math.floor(v + best.n[i] * .01));
+  aim = { place, hit: best.cell || null };
+  const hb = aim.hit && bricks.get(bk(aim.hit));
+  if (tool === 1) { ghost.position.set(place[0] + .5, place[1] + .5, place[2] + .5); ghost.material.color.setHex(0xffff66); ghost.visible = true; }   // 黄框：将砌在这里
+  else if (hb) { ghost.position.set(aim.hit[0] + .5, aim.hit[1] + .5, aim.hit[2] + .5); ghost.material.color.setHex(canRemove(hb) ? 0xff5050 : 0x888888); ghost.visible = true; }   // 红框：可拆；灰框：别人的
+  else ghost.visible = false;
+}
+function buildAt(op) {
+  if (!tool || tool === 3 || !myAlive || !aim || !ws || ws.readyState !== 1) return;
+  if (op === 'add' && tool !== 1) return;
+  const c = op === 'add' ? aim.place : aim.hit; if (!c) return;
+  swing = 1; ws.send(JSON.stringify({ t: 'build', op, c, b: blockType }));          // 由服务器校验后再广播，所有人同时看到
+}
+function undoBrick() {                        // Z：撤销自己砌的最后一块（还在的）
+  if (!tool || tool === 3 || !myAlive || !ws || ws.readyState !== 1) return;
+  for (let i = myBuilt.length - 1; i >= 0; i--) {
+    const k = myBuilt[i], b = bricks.get(k);
+    if (!b || b.o !== myUid) { myBuilt.splice(i, 1); continue; }
+    swing = 1; ws.send(JSON.stringify({ t: 'build', op: 'del', c: k.split(',').map(Number) })); return;
+  }
+}
+// ---------- 飞机 与 开关门 ----------
+function startPlane() {
+  initAudio(); planeSpeed = 18; bank = 0;
+  if (ac && !engine) { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sawtooth'; o.frequency.value = 110; g.gain.value = .05; o.connect(g); g.connect(sfxGain); o.start(); engine = { o, g }; }
+}
+function stopPlane() { if (engine) { try { engine.o.stop(); } catch (e) {} engine = null; } $('fly').textContent = ''; }
+function flyStep(dt) {                        // 飞行：鼠标决定朝向，W/S 加减速，A/D 转弯；会被楼、墙、砖挡住，也不会钻进地里
+  planeSpeed = Math.max(8, Math.min(40, planeSpeed + (keys.w ? 12 : keys.s ? -12 : 0) * dt));
+  if (keys.a) yaw += 1.0 * dt; if (keys.d) yaw -= 1.0 * dt;
+  bank += ((keys.a ? .45 : keys.d ? -.45 : 0) - bank) * Math.min(1, dt * 5);
+  const cp = Math.cos(pitch), mx = -Math.sin(yaw) * cp * planeSpeed * dt, my = Math.sin(pitch) * planeSpeed * dt, mz = -Math.cos(yaw) * cp * planeSpeed * dt;
+  const n = Math.max(1, Math.ceil(Math.hypot(mx, my, mz) / .5)), p = camera.position;           // 分成小步，高速也不会穿墙
+  for (let i = 0; i < n; i++) {
+    moveXZ(mx / n, mz / n);
+    const ny = Math.max(0, Math.min(60, feetY + my / n)); if (!hitsObs(p.x, ny, p.z)) feetY = ny;
+  }
+  vy = 0; onGround = feetY <= 0.01;
+  cockpit.userData.prop.rotation.z += dt * 40;
+  if (engine) engine.o.frequency.value = 70 + planeSpeed * 3.5;
+  $('fly').textContent = '✈ 速度 ' + planeSpeed.toFixed(0) + '  高度 ' + feetY.toFixed(0);
+}
+function toggleDoor() {                       // E：开/关准星指着的门（6 格以内）
+  if (!myAlive || tool === 3 || !ws || ws.readyState !== 1) return;
+  const d = new THREE.Vector3(); camera.getWorldDirection(d);
+  const br = ddaBricks(camera.position, d, 6); if (!br) return;
+  const b = bricks.get(bk(br.cell)); if (!b || b.t !== 4) return;
+  ws.send(JSON.stringify({ t: 'door', c: br.cell }));
+}
+setSlot(0);
+
+// ---------- 语音聊天（WebRTC 直连 + 空间音效；对战只和队友通话） ----------
+let micStream = null, voiceOn = false, micMuted = false, voiceGain = null;
+const peers = new Map(), failAt = {};
+const ICE = { iceServers: [] };               // 局域网直连不需要 STUN；以后放到公网时，在这里加 { urls: 'stun:…' } 和 TURN
+function setVoiceMsg(text) {
+  $('voice').textContent = text || (voiceOn ? (micMuted ? '🔇 麦克风已静音（V 开麦）' : '🎤 麦克风开启（V 静音）') : '语音未开启（V 开启）');
+}
+async function enableVoice() {
+  if (voiceOn) return true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setVoiceMsg('⚠ 语音需要 https：请用 https://' + location.hostname + ':3443 打开'); return false; }
+  try { micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+  catch (e) { setVoiceMsg('⚠ 没有拿到麦克风：' + e.name + '（检查浏览器的麦克风权限）'); return false; }
+  initAudio(); voiceOn = true; micMuted = false;
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'voice', on: true }));
+  setVoiceMsg(); return true;
+}
+function toggleMic() {
+  if (!voiceOn) { enableVoice(); return; }
+  micMuted = !micMuted; micStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; }); setVoiceMsg();
+}
+const sigSend = (to, data) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'rtc', to, data })); };
+function syncPeers(players) {                 // 该和谁通话：对方开了语音，且（合作模式 或 同队）
+  const want = new Set();
+  if (voiceOn) players.forEach(p => { if (p.id !== myId && p.voice && (mode !== 'pvp' || p.team === myTeam)) want.add(p.id); });
+  want.forEach(id => { if (!peers.has(id) && Date.now() - (failAt[id] || 0) > 3000) makePeer(id, myId < id); });   // id 小的一方发起，避免双方同时发起
+  [...peers.keys()].forEach(id => { if (!want.has(id)) closePeer(id); });
+}
+function makePeer(id, offerer) {
+  const pc = new RTCPeerConnection(ICE), o = { pc, id, queue: [], remoteSet: false, speaking: false };
+  peers.set(id, o);
+  micStream.getAudioTracks().forEach(t => pc.addTrack(t, micStream));
+  pc.onicecandidate = e => { if (e.candidate) sigSend(id, { cand: e.candidate }); };
+  pc.ontrack = e => attachRemote(o, e.streams[0]);
+  pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' && peers.get(id) === o) { failAt[id] = Date.now(); closePeer(id); } };
+  if (offerer) pc.createOffer().then(d => pc.setLocalDescription(d)).then(() => sigSend(id, { sdp: pc.localDescription })).catch(e => console.warn(e));
+  return o;
+}
+function closePeer(id) {
+  const o = peers.get(id); if (!o) return; peers.delete(id);
+  try { o.pc.close(); } catch (e) {}
+  if (o.audio) o.audio.srcObject = null;
+  try { if (o.src) o.src.disconnect(); if (o.panner) o.panner.disconnect(); } catch (e) {}
+}
+async function onRtc(from, d) {
+  let o = peers.get(from);
+  if (d.sdp) {
+    if (d.sdp.type === 'offer') {
+      if (o && o.remoteSet) { closePeer(from); o = null; }          // 对方重新发起：丢掉旧连接重建
+      if (!o) { if (!voiceOn) return; o = makePeer(from, false); }
+    }
+    if (!o) return;
+    await o.pc.setRemoteDescription(d.sdp); o.remoteSet = true;
+    for (const c of o.queue.splice(0)) await o.pc.addIceCandidate(c).catch(() => {});
+    if (d.sdp.type === 'offer') { const a = await o.pc.createAnswer(); await o.pc.setLocalDescription(a); sigSend(from, { sdp: o.pc.localDescription }); }
+  } else if (d.cand && o) { if (o.remoteSet) o.pc.addIceCandidate(d.cand).catch(() => {}); else o.queue.push(d.cand); }
+}
+function attachRemote(o, stream) {            // 远端声音 -> 声像器（按对方位置定向、按距离衰减）-> 总音量
+  const a = new Audio(); a.srcObject = stream; a.muted = true; a.play().catch(() => {});   // Chrome 需要先挂到 audio 元素，Web Audio 才拿得到远端声音
+  initAudio();
+  if (!voiceGain) { voiceGain = ac.createGain(); voiceGain.gain.value = 1.3; voiceGain.connect(master); }
+  const src = ac.createMediaStreamSource(stream), pan = ac.createPanner(), an = ac.createAnalyser();
+  pan.panningModel = 'HRTF'; pan.distanceModel = 'linear'; pan.refDistance = 4; pan.maxDistance = 45; pan.rolloffFactor = 1;   // 4 格内正常，45 格外听不到
+  an.fftSize = 256; src.connect(an); src.connect(pan); pan.connect(voiceGain);
+  Object.assign(o, { audio: a, src, panner: pan, analyser: an, buf: new Uint8Array(an.fftSize) });
+}
+function updateVoice() {                      // 每帧：听者位置/朝向 = 我的相机；每个说话人的位置 = 他的角色；顺便检测谁在说话
+  if (!ac || !peers.size) return;
+  const L = ac.listener, c = camera.position, f = new THREE.Vector3(); camera.getWorldDirection(f);
+  if (L.positionX) { L.positionX.value = c.x; L.positionY.value = c.y; L.positionZ.value = c.z; L.forwardX.value = f.x; L.forwardY.value = f.y; L.forwardZ.value = f.z; L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0; }
+  else { L.setPosition(c.x, c.y, c.z); L.setOrientation(f.x, f.y, f.z, 0, 1, 0); }
+  peers.forEach(o => {
+    const g = others.get(o.id), q = o.panner; if (!q) return;
+    if (g) { if (q.positionX) { q.positionX.value = g.position.x; q.positionY.value = g.position.y + 3; q.positionZ.value = g.position.z; } else q.setPosition(g.position.x, g.position.y + 3, g.position.z); }
+    o.analyser.getByteTimeDomainData(o.buf); let m = 0; for (const x of o.buf) m = Math.max(m, Math.abs(x - 128)); o.speaking = m > 12;
+  });
+}
+setVoiceMsg();
+
+function onMsg(m) {
+  if (m.t === 'welcome') {
+    myId = m.id; myTeam = m.team; myUid = m.uid; protectOn = m.protect !== false; mode = m.mode; wave = m.wave; teleport(m.x, m.z);
+    $('mode').textContent = mode === 'pvp' ? '对战（你是' + (m.team ? '红' : '蓝') + '队）' : '合作'; setBoxes(m.boxes);
+    avatars = m.avatars || {}; if (voiceOn) ws.send(JSON.stringify({ t: 'voice', on: true })); if (myAvatar && ws) ws.send(JSON.stringify({ t: 'avatar', url: myAvatar }));
+    (m.bricks || []).forEach(addBrick); buildMap(m.map, m.mapId); $('mode').textContent += '｜' + (m.map.name || m.mapId) + '｜建筑保护' + (protectOn ? '开' : '关');
+    for (const k in (m.tex || {})) applyTex(k, m.tex[k]);          // 后加入的人也能看到已设置的图片
+  } else if (m.t === 'wave') { wave = m.wave; setBoxes(m.boxes); }
+  else if (m.t === 'tex') applyTex(m.kind, m.url);
+  else if (m.t === 'brick') {
+    if (m.op === 'add') { addBrick(m.c); if (m.by === myId) myBuilt.push(bk(m.c)); } else delBrick(m.c);
+    if (m.by === myId) (m.op === 'add' ? sfxBuild : sfxDig)();
+  }
+  else if (m.t === 'rtc') onRtc(m.from, m.data).catch(e => console.warn('语音握手出错', e));
+  else if (m.t === 'door') { setDoor(m.cells, m.open); const c = m.cells[0]; if (c && Math.hypot(c[0] + .5 - camera.position.x, c[2] + .5 - camera.position.z) < 25) sfxDoor(); }
+  else if (m.t === 'saved') $('saved').textContent = '💾 已保存 ' + new Date().toLocaleTimeString();
+  else if (m.t === 'avatar') { avatars[m.id] = m.url; const g = others.get(m.id); if (g) setFace(g, m.url); }
+  else if (m.t === 'state') { applyState(m.players); applyMobs(m.mobs || []); }
+  else if (m.t === 'shot') { tracer(m); if (m.id !== myId) sfxShoot(); }
+  else if (m.t === 'mobhit') {
+    const o = mobs.get(m.id);
+    if (o) { o.hp = m.hp; o.flash = .15; if (m.dead) { o.alive = false; o.dying = .35; leftN = Math.max(0, leftN - 1); hud(); } }
+    if (m.by === myId) (m.dead ? sfxKill : sfxHit)();
+  } else if (m.t === 'hurt') {
+    if (m.id === myId) {
+      myHp = m.hp; sfxHurt(); flashDamage(); hud();
+      if (m.hp <= 0) { hint.style.display = 'block'; hint.textContent = '你被击败了，3 秒后复活'; }
+    } else if (m.by === myId) sfxHit();
+  } else if (m.t === 'respawn' && m.id === myId) {
+    myHp = 100; myAlive = true; teleport(m.x, m.z); hint.style.display = 'none'; hud();
+  } else if (m.t === 'clear') sfxClear();
+  else if (m.t === 'full') { alert('房间已满（最多 4 人）'); location.reload(); }
+}
+function getPid() {                          // 浏览器里的随机身份码：用来认出“这是我砌的”，服务器只保存它的哈希
+  try {
+    let v = localStorage.getItem('shooterPid');
+    if (!/^[0-9a-f]{32}$/.test(v || '')) { v = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('shooterPid', v); }
+    return v;
+  } catch (e) { return null; }
+}
+function connect(name, room, md, n, map, protect) {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name, room, mode: md, n, map, pid: getPid(), protect }));
+  ws.onmessage = e => onMsg(JSON.parse(e.data));
+  ws.onclose = () => { [...peers.keys()].forEach(closePeer); hint.style.display = 'block'; hint.textContent = '与服务器断开，请刷新页面'; };
+}
+
+// ---------- 换图片（经服务器同步给同房间所有人） ----------
+const TEXSIZE = { box: [256, 256], sky: [1024, 512], ground: [512, 512] };
+function applyTex(kind, url) {
+  new THREE.TextureLoader().load(url, t => {
+    t.encoding = sRGB;
+    if (kind === 'sky') { skyMat.map = t; skyMat.needsUpdate = true; }
+    else if (kind === 'ground') { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 60); groundMat.map = t; groundMat.needsUpdate = true; }
+  });
+}
+function pick(id, kind) {                    // 先缩小成 JPEG 再发送，避免大图占满网络
+  $(id).addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    const img = new Image(), objUrl = URL.createObjectURL(f);
+    img.onload = () => {
+      const [w, h] = TEXSIZE[kind], c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h); URL.revokeObjectURL(objUrl);
+      const url = c.toDataURL('image/jpeg', .8);
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'tex', kind, url }));   // 服务器会广播给所有人（包括自己）
+      else applyTex(kind, url);
+    };
+    img.src = objUrl;
+  });
+}
+pick('pSky', 'sky'); pick('pGround', 'ground');
+
+// ---------- 音频（全部程序合成，无需音频文件） ----------
+let ac, master, musicGain, sfxGain, muted = false, customBgm = false, bgmEl = null, nextT = 0, step = 0;
+const chords = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];   // Am F C G
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+function tone(f, t, dur, type, vol, dest, f2) {
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(dest); o.start(t); o.stop(t + dur + 0.05);
+}
+function scheduleMusic() {
+  const beat = 60 / 110 / 2;
+  while (nextT < ac.currentTime + 0.4) {
+    const ch = chords[Math.floor(step / 8) % 4], i = step % 8;
+    tone(mtof(ch[[0, 1, 2, 1, 0, 1, 2, 1][i]] + 12), nextT, beat * 1.8, 'triangle', 0.10, musicGain);
+    if (i % 4 === 0) tone(mtof(ch[0] - 12), nextT, beat * 3.5, 'sine', 0.18, musicGain);
+    nextT += beat; step++;
+  }
+}
+function initAudio() {                      // 浏览器要求用户操作后才能出声
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  ac = new AC(); master = ac.createGain(); master.gain.value = muted ? 0 : 1; master.connect(ac.destination);
+  musicGain = ac.createGain(); musicGain.gain.value = customBgm ? 0 : .5; musicGain.connect(master);
+  sfxGain = ac.createGain(); sfxGain.gain.value = .8; sfxGain.connect(master);
+  nextT = ac.currentTime + .1; setInterval(() => { if (!customBgm) scheduleMusic(); }, 100);
+}
+const sfxShoot = () => { if (ac) tone(900, ac.currentTime, .14, 'square', .25, sfxGain, 120); };
+const sfxHit = () => { if (ac) { const t = ac.currentTime; tone(520, t, .1, 'square', .3, sfxGain, 260); tone(990, t + .06, .2, 'triangle', .35, sfxGain); } };
+const sfxHurt = () => { if (ac) { const t = ac.currentTime; tone(180, t, .25, 'sawtooth', .45, sfxGain, 60); tone(90, t, .3, 'square', .3, sfxGain, 50); } };
+const sfxBuild = () => { if (ac) { const t = ac.currentTime; tone(300, t, .06, 'square', .25, sfxGain, 150); tone(120, t + .03, .08, 'triangle', .3, sfxGain); } };
+const sfxDig = () => { if (ac) tone(160, ac.currentTime, .1, 'sawtooth', .2, sfxGain, 70); };
+const sfxKill = () => { if (ac) { const t = ac.currentTime; tone(520, t, .1, 'square', .3, sfxGain, 260); tone(990, t + .06, .2, 'triangle', .35, sfxGain); tone(1320, t + .14, .25, 'triangle', .3, sfxGain); } };
+const sfxDoor = () => { if (ac) { const t = ac.currentTime; tone(180, t, .18, 'sawtooth', .18, sfxGain, 110); tone(90, t + .12, .12, 'square', .15, sfxGain); } };
+const sfxClear = () => { if (ac) [523, 659, 784, 1047].forEach((f, i) => tone(f, ac.currentTime + i * .1, .25, 'triangle', .3, sfxGain)); };
+$('pBgm').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (bgmEl) bgmEl.pause();
+  bgmEl = new Audio(URL.createObjectURL(f)); bgmEl.loop = true; bgmEl.volume = .5; bgmEl.muted = muted;
+  customBgm = true; if (musicGain) musicGain.gain.value = 0; bgmEl.play();
+});
+
+// ---------- 输入 ----------
+let yaw = 0, pitch = 0; const keys = {};
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;                   // 在输入框打字时不触发移动/静音
+  const k = e.key.toLowerCase(); keys[k] = true;
+  if (/^[1-9]$/.test(k)) setSlot(+k - 1); else if (k === 'z') undoBrick(); else if (k === 'v') toggleMic(); else if (k === 'e') toggleDoor();
+  if (k === 'm') { muted = !muted; if (master) master.gain.value = muted ? 0 : 1; if (bgmEl) bgmEl.muted = muted; }
+});
+addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+const canvasEl = renderer.domElement, hint = $('hint');
+const locked = () => document.pointerLockElement === canvasEl;
+let noLock = !canvasEl.requestPointerLock, failCount = 0, dragging = false, dragDist = 0;
+function look(dx, dy, s) { yaw -= dx * s; pitch = Math.max(-1.5, Math.min(1.5, pitch - dy * s)); }
+function setNoLock() {
+  noLock = true; hint.style.display = 'block';
+  hint.textContent = '鼠标锁定不可用，已切换为：按住拖动转视角，单击开枪';
+  setTimeout(() => { if (!locked()) hint.style.display = 'none'; }, 5000);
+}
+if (noLock) setNoLock();
+canvasEl.addEventListener('click', () => {
+  initAudio();
+  if (noLock || locked()) return;
+  try { const r = canvasEl.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) { setNoLock(); }
+});
+document.addEventListener('pointerlockchange', () => {
+  if (locked()) { failCount = 0; hint.style.display = 'none'; }
+  else {
+    for (const k in keys) keys[k] = false;
+    if (!noLock) { hint.style.display = 'block'; hint.textContent = '点击画面开始（Esc 退出鼠标锁定）'; }
+  }
+});
+document.addEventListener('pointerlockerror', () => {
+  if (++failCount >= 2) { setNoLock(); return; }
+  hint.style.display = 'block'; hint.textContent = '锁定失败，请等 1 秒后再点一次';
+});
+addEventListener('mousemove', e => {
+  if (locked()) look(e.movementX, e.movementY, 0.002);
+  else if (dragging) { dragDist += Math.abs(e.movementX) + Math.abs(e.movementY); look(e.movementX, e.movementY, 0.005); }
+});
+addEventListener('mousedown', e => {
+  initAudio();
+  if (locked()) { if (e.button === 0) usePrimary(); else if (e.button === 2) buildAt('del'); }   // 左键：开枪/砌砖，右键：拆砖
+  else if (e.button === 0 && noLock && e.target === canvasEl) { dragging = true; dragDist = 0; }
+});
+addEventListener('mouseup', () => { if (dragging) { dragging = false; if (dragDist < 5) usePrimary(); } });
+addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('wheel', e => { if (locked()) setSlot((slot + (e.deltaY > 0 ? 1 : 8)) % 9); });
+
+// ---------- 子弹（只负责画出来，命中由服务器判定） ----------
+const bullets = [];
+const bulletGeo = new THREE.SphereGeometry(0.15, 12, 12), bulletMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
+function tracer(m) {                         // 弹道在命中距离处结束
+  const start = new THREE.Vector3(), tgt = new THREE.Vector3(m.o.x + m.d.x * m.len, m.o.y + m.d.y * m.len, m.o.z + m.d.z * m.len);
+  if (m.id === myId) flash.getWorldPosition(start); else start.set(m.o.x + m.d.x * .8, m.o.y - .3 + m.d.y * .8, m.o.z + m.d.z * .8);
+  const v = tgt.clone().sub(start), dist = v.length(); if (dist < .1) return;
+  const b = new THREE.Mesh(bulletGeo, bulletMat); b.position.copy(start);
+  b.userData = { vel: v.normalize().multiplyScalar(80), life: dist / 80 };
+  scene.add(b); bullets.push(b);
+}
+function shoot() {
+  if (!myAlive || !ws || ws.readyState !== 1) return;
+  shots++; sfxShoot(); recoil = 1; flash.visible = true; flashT = .05;
+  const d = new THREE.Vector3(); camera.getWorldDirection(d);
+  ws.send(JSON.stringify({ t: 'shoot', d: { x: d.x, y: d.y, z: d.z } }));
+}
+
+// ---------- 主循环 ----------
+const clock = new THREE.Clock(); let netT = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.05), sp = 6 * dt;
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  let dx = 0, dz = 0;
+  if (myAlive) {
+    if (keys.w) { dx += fx; dz += fz; } if (keys.s) { dx -= fx; dz -= fz; }
+    if (keys.d) { dx += rx; dz += rz; } if (keys.a) { dx -= rx; dz -= rz; }
+  }
+  const L = Math.hypot(dx, dz) || 1;         // 斜着走不加速
+  if (tool === 3 && myAlive) flyStep(dt); else { moveXZ(dx / L * sp, dz / L * sp); stepVertical(dt); }
+  camera.position.y = feetY + 3;
+  camera.rotation.set(pitch, yaw, myAlive ? (tool === 3 ? bank : 0) : .6);          // 阵亡时视角歪倒
+  sky.position.copy(camera.position); updateAim(); updateMobs(dt); updateVoice(dt);
+
+  netT += dt;                                                  // 每 50ms 上报自己的位置和朝向
+  if (netT > .05 && ws && ws.readyState === 1 && myId) { netT = 0; ws.send(JSON.stringify({ t: 'move', tool, x: camera.position.x, y: feetY, z: camera.position.z, yaw, pitch })); }
+  others.forEach(g => { const t = g.userData.tgt; if (!t) return; const ox = g.position.x, oz = g.position.z; g.position.x += (t.x - g.position.x) * .3; g.position.z += (t.z - g.position.z) * .3; g.position.y += ((t.y || 0) - g.position.y) * .3; g.rotation.y = t.yaw; g.userData.head.rotation.x = (t.pitch || 0) * .7;
+    const fl = t.tool === 3; g.userData.body.forEach(c => { c.visible = !fl; }); g.userData.planeM.visible = fl;     // 坐飞机时只显示飞机
+    g.userData.planeM.rotation.x = fl ? (t.pitch || 0) : 0; g.userData.prop.rotation.z += fl ? .8 : 0;
+    if (!fl) { g.userData.gunM.visible = !t.tool; g.userData.shovelM.visible = t.tool === 1; g.userData.pickM.visible = t.tool === 2; }
+    const u = g.userData, v = Math.hypot(g.position.x - ox, g.position.z - oz) / Math.max(dt, .001);   // 按实际移动速度摆动
+    u.spd += (Math.min(v, 9) - u.spd) * .2; u.phase += u.spd * dt * 1.1;
+    const sw = Math.sin(u.phase) * Math.min(1, u.spd / 6) * .7;
+    u.legs[0].rotation.x = sw; u.legs[1].rotation.x = -sw; u.armL.rotation.x = -sw * .8; });
+
+  const moving = myAlive && (keys.w || keys.a || keys.s || keys.d);   // 枪的摆动与后坐力
+  bob += dt * (moving ? 9 : 2); recoil = Math.max(0, recoil - dt * 8);
+  flashT -= dt; if (flashT <= 0) flash.visible = false;
+  gun.position.set(GUN_REST.x + Math.sin(bob * .5) * (moving ? .012 : .003),
+                   GUN_REST.y + Math.abs(Math.sin(bob * .5)) * (moving ? .012 : .002), GUN_REST.z + recoil * .07);
+  gun.rotation.x = recoil * .12;
+  shovel.position.copy(gun.position); pickaxe.position.copy(gun.position); shovel.rotation.x = pickaxe.rotation.x = -.3 - swing * .8; swing = Math.max(0, swing - dt * 5);
+
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i]; b.position.addScaledVector(b.userData.vel, dt); b.userData.life -= dt;
+    if (b.userData.life <= 0) { scene.remove(b); bullets.splice(i, 1); }
+  }
+  renderer.render(scene, camera);
+}
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
+});
+// ---------- 开始界面 ----------
+try { const v = JSON.parse(localStorage.getItem('shooter2')); if (v) { $('nameIn').value = v.name; $('roomIn').value = v.room; $('modeSel').value = v.md; $('countIn').value = v.n; } } catch (e) {}
+function startGame() {
+  if (location.protocol === 'file:') { $('startMsg').textContent = '请先启动服务器，再用 http://localhost:3000 打开本页'; return; }
+  const name = ($('nameIn').value.trim() || '玩家').slice(0, 12), room = ($('roomIn').value.trim() || 'room1').slice(0, 16);
+  const md = $('modeSel').value, n = Math.max(1, Math.min(10, parseInt($('countIn').value) || 3));
+  try { localStorage.setItem('shooter2', JSON.stringify({ name, room, md, n })); } catch (e) {}
+  $('pname').textContent = name; $('startBox').style.display = 'none';
+  connect(name, room, md, n, $('mapSel').value, $('protSel').value === '1');
+  if ($('voiceChk').checked) enableVoice(); initAudio();
+  if (!noLock) { try { const r = canvasEl.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
+}
+let myAvatar = null;
+try { myAvatar = localStorage.getItem('shooterAvatar'); if (myAvatar) { $('avPrev').src = myAvatar; $('avPrev').hidden = false; } } catch (e) {}
+$('avIn').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image(), u = URL.createObjectURL(f);
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+    const side = Math.min(img.width, img.height);                      // 居中裁成正方形，缩小到 128×128 再发送
+    c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 128, 128);
+    URL.revokeObjectURL(u); myAvatar = c.toDataURL('image/jpeg', .85);
+    try { localStorage.setItem('shooterAvatar', myAvatar); } catch (e) {}
+    $('avPrev').src = myAvatar; $('avPrev').hidden = false;
+  };
+  img.src = u;
+});
+fetch('/api/maps').then(r => r.json()).then(list => {
+  const sel = $('mapSel'); sel.textContent = '';
+  list.forEach(m => { const o = document.createElement('option'); o.value = m.id; o.textContent = m.name; sel.appendChild(o); });
+}).catch(() => {});
+$('startBtn').addEventListener('click', startGame);
+['nameIn', 'roomIn', 'countIn'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') startGame(); }));
+loop();
+</script></body></html>
